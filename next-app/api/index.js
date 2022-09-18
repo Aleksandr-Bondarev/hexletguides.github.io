@@ -1,6 +1,5 @@
 import path from 'path';
 import fsp from 'fs/promises';
-import fs from 'fs';
 
 import matter from 'gray-matter';
 import remarkGfm from 'remark-gfm';
@@ -97,28 +96,26 @@ export const findPost = async (name, locale) => {
 };
 
 export const generateRssFeed = async (locale) => {
-  const posts = await getPublishedPosts(locale);
-  const postsToShow = posts.filter(({ hidden = false }) => !hidden);
-
-  const siteURL = 'http://localhost:3000';
   const date = new Date();
+  const posts = await getPublishedPosts(locale);
+  const visiblePosts = posts.filter(({ hidden = false }) => !hidden);
 
   const feed = new Feed({
-    title: "Hexlet Guides",
-    description: "Полезные статьи и гайды для разработчиков",
-    id: siteURL,
-    link: siteURL,
+    title: config.title,
+    description: config.description,
+    author: config.author,
+    id: config.siteURL,
+    link: config.siteURL,
     language: locale,
-    image: `${siteURL}/favicon.ico`,
-    favicon: `${siteURL}/favicon.ico`,
+    image: `${config.siteURL}/favicon.ico`,
+    favicon: `${config.siteURL}/favicon.ico`,
     updated: date, // today's date
     feedLinks: {
-      rss2: `${siteURL}/feed.xml`,
+      rss2: `${config.siteURL}/feed.xml`,
     },
-    author: 'Kirill Mokevnin',
   });
 
-  postsToShow.forEach((post) => {
+  visiblePosts.forEach((post) => {
     feed.addItem({
       title: post.header,
       id: post.sourceUrl,
@@ -133,5 +130,5 @@ export const generateRssFeed = async (locale) => {
     });
   });
 
-  fs.writeFileSync("./public/feed.xml", feed.rss2());
+  return feed.rss2();
 };
