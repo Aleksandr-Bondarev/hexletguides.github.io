@@ -10,7 +10,22 @@ import findLastIndex from 'lodash.findlastindex';
 import capitalize from 'lodash.capitalize';
 import { parseISO, endOfDay } from 'date-fns';
 
+import { i18n } from '../next-i18next.config.js';
 import config from '../data/config.js';
+
+const makeHref = (pathname, locale) => {
+  const parts = ['/'];
+
+  if (locale !== i18n.defaultLocale) {
+    parts.push(locale);
+  }
+
+  if (pathname) {
+    parts.push(pathname);
+  }
+
+  return path.join(...parts);
+};
 
 const formatNameToHeader = (name) => {
   return name
@@ -19,7 +34,7 @@ const formatNameToHeader = (name) => {
     .join(' ');
 };
 
-const readPost = async (filePath, basePath) => {
+const readPost = async (filePath, basePath, locale) => {
   const fileContent = await fsp.readFile(path.join(basePath, filePath), 'utf-8');
   const { data, content } = matter(fileContent);
   const { name } = path.parse(filePath);
@@ -38,6 +53,7 @@ const readPost = async (filePath, basePath) => {
     name: shortName,
     header: header || formatNameToHeader(shortName),
     date: date.toISOString(),
+    href: makeHref(shortName, locale),
     ...props,
   };
 };
@@ -53,7 +69,7 @@ export const getPublishedPosts = async (locale) => {
 
   const promises = fileNames
     .sort((a, b) => a.localeCompare(b))
-    .map(async (name) => readPost(path.join(postsPath, name), dir));
+    .map(async (name) => readPost(path.join(postsPath, name), dir, locale));
 
   return await Promise.all(promises);
 };
@@ -63,10 +79,11 @@ export const getPostsList = async (locale) => {
 
   return posts
     .filter(({ hidden = false }) => !hidden)
-    .map(({ header, summary, name }) => ({
+    .map(({ header, summary, name, href }) => ({
       header,
       summary,
       name,
+      href,
     }))
     .reverse();
 };
@@ -95,8 +112,8 @@ export const findPost = async (name, locale) => {
 
   return {
     ...props,
-    nextPostData: { name: nextPost.name, header: nextPost.header },
-    prevPostData: { name: prevPost.name, header: prevPost.header },
+    nextPostData: { name: nextPost.name, header: nextPost.header, href: nextPost.href },
+    prevPostData: { name: prevPost.name, header: prevPost.header, href: prevPost.href },
     content: compiledSource,
   };
 };
@@ -122,8 +139,8 @@ export const generateRssFeed = async (locale) => {
   visiblePosts.forEach((post) => {
     feed.addItem({
       title: post.header,
-      id: post.sourceUrl,
-      link: post.sourceUrl,
+      id: post.name,
+      link: new URL(post.href, config.siteURL),
       description: post.summary,
       content: post.content,
       author: {
@@ -140,9 +157,19 @@ export const generateRssFeed = async (locale) => {
 export const generateSitemap = async (locale) => {
   const posts = await getPublishedPosts(locale);
   const visiblePosts = posts.filter(({ hidden = false }) => !hidden);
-
-  return visiblePosts.map(({ sourceUrl, date }) => ({
-    loc: sourceUrl,
+  const fields = visiblePosts.map(({ href, date }) => ({
+    loc: new URL(href, config.siteURL),
     lastmod: date,
+    trailingSlash: false,
   }));
+
+  fields.push({
+    loc: new URL(makeHref(null, locale), config.siteURL)
+  });
+
+  fields.push({
+    loc: new URL(makeHref('about', locale), config.siteURL)
+  });
+
+  return fields;
 };
