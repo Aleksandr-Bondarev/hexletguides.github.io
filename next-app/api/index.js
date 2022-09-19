@@ -96,7 +96,6 @@ export const findPost = async (name, locale) => {
 };
 
 export const generateRssFeed = async (locale) => {
-  const date = new Date();
   const posts = await getPublishedPosts(locale);
   const visiblePosts = posts.filter(({ hidden = false }) => !hidden);
 
@@ -109,7 +108,7 @@ export const generateRssFeed = async (locale) => {
     language: locale,
     image: `${config.siteURL}/favicon.ico`,
     favicon: `${config.siteURL}/favicon.ico`,
-    updated: date, // today's date
+    updated: new Date().toISOString(), // today's date
     feedLinks: {
       rss2: `${config.siteURL}/feed.xml`,
     },
@@ -131,4 +130,14 @@ export const generateRssFeed = async (locale) => {
   });
 
   return feed.rss2();
+};
+
+export const generateSitemap = async (locale) => {
+  const posts = await getPublishedPosts(locale);
+  const visiblePosts = posts.filter(({ hidden = false }) => !hidden);
+
+  return visiblePosts.map(({ sourceUrl }) => ({
+    loc: sourceUrl,
+    lastmod: new Date().toISOString(),
+  }));
 };

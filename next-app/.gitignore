@@ -8,9 +8,6 @@
 /.next/
 /out/
 
-# sitemap
-/public/sitemap.xml
-
 # production
 /build
 
