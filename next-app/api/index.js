@@ -8,6 +8,7 @@ import { serialize } from 'next-mdx-remote/serialize';
 import { Feed } from 'feed';
 import findLastIndex from 'lodash.findlastindex';
 import capitalize from 'lodash.capitalize';
+import { parseISO, endOfDay } from 'date-fns';
 
 import config from '../data/config.js';
 
@@ -24,7 +25,11 @@ const readPost = async (filePath, basePath) => {
   const { name } = path.parse(filePath);
   const { title = null, header = title, description = null, summary = description, ...props } = data;
   const sourceUrl = `${config.repositoryUrl}/tree/main/${filePath}`;
-  const shortName = name.slice(11);  // remove DD_MM_YYYY prefix from post file name
+  const shortName = name.slice(11); // remove DD_MM_YYYY prefix from post file name
+  const date = endOfDay(parseISO(name.slice(0, 10)));
+
+  // make date UTC
+  date.setUTCHours(0, 0, 0, 0);
 
   return {
     summary,
@@ -32,6 +37,7 @@ const readPost = async (filePath, basePath) => {
     sourceUrl,
     name: shortName,
     header: header || formatNameToHeader(shortName),
+    date: date.toISOString(),
     ...props,
   };
 };
@@ -108,7 +114,6 @@ export const generateRssFeed = async (locale) => {
     language: locale,
     image: `${config.siteURL}/favicon.ico`,
     favicon: `${config.siteURL}/favicon.ico`,
-    updated: new Date().toISOString(), // today's date
     feedLinks: {
       rss2: `${config.siteURL}/feed.xml`,
     },
@@ -124,8 +129,8 @@ export const generateRssFeed = async (locale) => {
       author: {
         name: post.author,
       },
+      date: parseISO(post.date),
       // image: post.image,
-      // date: new Date(post.date),
     });
   });
 
@@ -136,8 +141,8 @@ export const generateSitemap = async (locale) => {
   const posts = await getPublishedPosts(locale);
   const visiblePosts = posts.filter(({ hidden = false }) => !hidden);
 
-  return visiblePosts.map(({ sourceUrl }) => ({
+  return visiblePosts.map(({ sourceUrl, date }) => ({
     loc: sourceUrl,
-    lastmod: new Date().toISOString(),
+    lastmod: date,
   }));
 };
