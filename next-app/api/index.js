@@ -1,15 +1,19 @@
 import path from 'path';
 import fsp from 'fs/promises';
 
+import { createElement } from 'react';
+import { renderToString } from 'react-dom/server';
+import { serverSideTranslations } from 'next-i18next/serverSideTranslations';
 import matter from 'gray-matter';
 import remarkGfm from 'remark-gfm';
 import rehypePrism from '@mapbox/rehype-prism';
 import { serialize } from 'next-mdx-remote/serialize';
-import { Feed } from 'feed';
+import Feed from 'turbo-rss';
 import findLastIndex from 'lodash.findlastindex';
 import capitalize from 'lodash.capitalize';
 import { parseISO, endOfDay } from 'date-fns';
 
+import RSSFeedPostContent from '../components/RSSFeedPostContent.jsx';
 import { i18n } from '../next-i18next.config.js';
 import config from '../data/config.js';
 
@@ -58,6 +62,54 @@ const readPost = async (filePath, basePath, locale) => {
   };
 };
 
+const compilePostContent = async (content) => {
+  const { compiledSource } = await serialize(content, {
+    mdxOptions: {
+      rehypePlugins: [rehypePrism],
+      remarkPlugins: [remarkGfm],
+      format: 'mdx',
+    },
+    parseFrontmatter: false,
+  });
+
+  return compiledSource;
+};
+
+const makePostRSSItem = async (post, locale) => {
+  const postUrl = new URL(post.href, config.siteURL)
+  const content = await compilePostContent(post.content);
+  const breadcrumbs = [
+    {
+      link: config.siteURL,
+      text: config.title,
+    },
+    {
+      link: postUrl.toString(),
+      text: post.header,
+    },
+  ];
+
+  const translations = await serverSideTranslations(locale, ['common', 'post']);
+  const contentElement = createElement(RSSFeedPostContent, {
+    pageProps: {
+      ...translations,
+    },
+    content,
+    href: postUrl.toString(),
+  });
+
+  return {
+    title: post.header,
+    author: post.author,
+    content: renderToString(contentElement),
+    link: postUrl.toString(),
+    date: post.date,
+    breadcrumbs,
+    extendedHtml: true,
+    turboEnabled: true,
+  };
+};
+
 export const getPublishedPosts = async (locale) => {
   const { dir } = path.parse(process.cwd());
   const postsPath = path.join('next-app', 'data', 'posts', locale);
@@ -101,66 +153,40 @@ export const findPost = async (name, locale) => {
   const prevPost = postIndex === 0 ? posts[postsCount] : posts[postIndex - 1];
 
   const { content, ...props } = posts[postIndex];
-  const { compiledSource } = await serialize(content, {
-    mdxOptions: {
-      rehypePlugins: [rehypePrism],
-      remarkPlugins: [remarkGfm],
-      format: 'mdx',
-    },
-    parseFrontmatter: false,
-  });
 
   return {
     ...props,
     nextPostData: { name: nextPost.name, header: nextPost.header, href: nextPost.href },
     prevPostData: { name: prevPost.name, header: prevPost.header, href: prevPost.href },
-    content: compiledSource,
+    content: await compilePostContent(content),
   };
 };
 
 export const generateRssFeed = async (locale) => {
   const posts = await getPublishedPosts(locale);
-  const visiblePosts = posts.filter(({ hidden = false }) => !hidden);
+  const promises = posts
+    .filter(({ hidden = false }) => !hidden)
+    .map((post) => makePostRSSItem(post, locale));
 
+  const feedItems = await Promise.all(promises);
   const feed = new Feed({
     title: config.title,
-    description: config.description,
-    author: config.author,
-    id: config.siteURL,
     link: config.siteURL,
+    description: config.description,
     language: locale,
-    image: `${config.siteURL}/favicon.ico`,
-    favicon: `${config.siteURL}/favicon.ico`,
-    feedLinks: {
-      rss2: `${config.siteURL}/feed.xml`,
-    },
   });
 
-  visiblePosts.forEach((post) => {
-    feed.addItem({
-      title: post.header,
-      id: post.name,
-      link: new URL(post.href, config.siteURL),
-      description: post.summary,
-      content: post.content,
-      author: {
-        name: post.author,
-      },
-      date: parseISO(post.date),
-      // image: post.image,
-    });
-  });
+  feedItems.forEach((data) => feed.item(data));
 
-  return feed.rss2();
+  return feed.xml();
 };
 
 export const generateSitemap = async (locale) => {
   const posts = await getPublishedPosts(locale);
   const visiblePosts = posts.filter(({ hidden = false }) => !hidden);
-  const fields = visiblePosts.map(({ href, date }) => ({
-    loc: new URL(href, config.siteURL),
-    lastmod: date,
-    trailingSlash: false,
+  const fields = visiblePosts.map((post) => ({
+    loc: new URL(post.href, config.siteURL),
+    lastmod: post.date,
   }));
 
   fields.push({
